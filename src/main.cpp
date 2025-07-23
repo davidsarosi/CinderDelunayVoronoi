@@ -1,101 +1,97 @@
-#include "imgui.h"
-#include "imgui-SFML.h"
-
-#include <SFML/Graphics/CircleShape.hpp>
-#include <SFML/Graphics/RenderWindow.hpp>
-#include <SFML/System/Clock.hpp>
-#include <SFML/Window/Event.hpp>
 #include <iostream>
 
 #include "Point.h"
 #include "Line.h"
 #include "Triangle.h"
-#include "DelunayTriangulator.h"
+#include "DelaunayTriangulator.h"
+
+
+#include "cinder/app/App.h"
+#include "cinder/app/RendererGl.h"
+#include "cinder/gl/gl.h"
+
+using namespace ci;
+using namespace ci::app;
+using namespace std;
 
 #define  WINDOW_SIZE_X 1500
 #define  WINDOW_SIZE_Y 1000
-#define  NUMBER_OF_TRIANGLES 2000
+#define  NUMBER_OF_POINTS 1000
 
-void updateTriangles(DelunayTriangulator& triangulator, sf::VertexArray& triangles)
+
+class CinderDelaunayVoronoi: public App
 {
-    triangles.clear();
-    for (const auto &triangle: triangulator.triangles)
+    gl::VboMeshRef PointsMesh;
+    gl::VboMeshRef TrianglesMesh;
+    int vertexCountInTriangleMesh{};
+    DelaunayTriangulator triangulator{};
+
+
+    void updateTriangles()
     {
-        for (int i=0;i<3;i++)
+        std::vector<ci::vec2> vertexes{};
+//    std::vector<ci::ColorA> colors{triangulator.triangles.size() * 3, ColorA(0, 1, 0, 1)};
+        for (const auto &triangle: triangulator.triangles)
         {
-            auto vertexBegin = sf::Vertex{sf::Vector2f{triangle->points[i%3]->x, triangle->points[i%3]->y}};
-            auto vertexEnd = sf::Vertex{sf::Vector2f{triangle->points[(i+1)%3]->x, triangle->points[(i+1)%3]->y}};
-            vertexBegin.color=sf::Color::Green;
-            vertexEnd.color=sf::Color::Green;
-            triangles.append(vertexBegin);
-            triangles.append(vertexEnd);
+                for (int i = 0; i < 3; i++)
+                {
+                    vertexes.emplace_back(triangle->points[i]->x, triangle->points[i]->y);
+                    vertexes.emplace_back(triangle->points[(i+1)%3]->x, triangle->points[(i+1)%3]->y);
+                }
         }
-    }
-}
+        vertexCountInTriangleMesh=vertexes.size();
 
-int main()
-{
+        if (vertexCountInTriangleMesh==0){
+            return;
+        }
+        TrianglesMesh->bufferAttrib(geom::POSITION, vertexes);
 
-    DelunayTriangulator triangulator{};
-    triangulator.superTriangleInit(WINDOW_SIZE_X, WINDOW_SIZE_Y);
-
-    sf::VertexArray points{sf::Points, 0};
-    for (int i = 0; i < NUMBER_OF_TRIANGLES; i++)
-    {
-        float x=rand() % (WINDOW_SIZE_X-100)+50;
-        float y=rand() % (WINDOW_SIZE_Y-100)+50;
-        triangulator.addPoint(new Point{x, y});
-        auto vertex = sf::Vertex{sf::Vector2f{x, y}};
-        vertex.color=sf::Color::Green;
-        points.append(vertex);
+//    triangles->bufferAttrib(geom::COLOR,colors);
     }
 
-    sf::VertexArray triangles{sf::Lines, 0};
 
-    triangulator.triangulate();
-    updateTriangles(triangulator,triangles);
+public:
+    void setup() override {
+        std::vector<vec2> positions;
+        std::vector<ColorA> colors;
 
-
-    sf::RenderWindow window(sf::VideoMode(WINDOW_SIZE_X, WINDOW_SIZE_Y), "ImGui + SFML = <3");
-    window.setFramerateLimit(60);
-    if (!ImGui::SFML::Init(window))
-        return 0;
-
-    sf::CircleShape shape(100.f);
-    shape.setFillColor(sf::Color::Green);
-
-
-    sf::Clock deltaClock;
-    while (window.isOpen())
-    {
-        sf::Event event{};
-        while (window.pollEvent(event))
-        {
-            ImGui::SFML::ProcessEvent(window, event);
-
-            if (event.type == sf::Event::Closed)
-            {
-                window.close();
-            }
+        for (int i = 0; i < NUMBER_OF_POINTS; ++i) {
+            float x = rand() % (WINDOW_SIZE_X - 100) + 50;
+            float y = rand() % (WINDOW_SIZE_Y - 100) + 50;
+            triangulator.addPoint(new Point{x, y});
+            positions.emplace_back(x, y);
         }
+        triangulator.superTriangleInit(WINDOW_SIZE_X,WINDOW_SIZE_Y);
+        gl::VboMesh::Layout layout1;
+        layout1.attrib(geom::POSITION, 2);
+        gl::VboMesh::Layout layout2;
+        layout2.attrib(geom::POSITION, 2);
 
-        ImGui::SFML::Update(window, deltaClock.restart());
+        PointsMesh = gl::VboMesh::create(positions.size(), GL_POINTS, { layout1 });
+        PointsMesh->bufferAttrib(geom::POSITION, positions);
 
-        //ImGui::ShowDemoWindow();
+        TrianglesMesh = gl::VboMesh::create(NUMBER_OF_POINTS*2*6, GL_LINES, { layout2 });
 
-//        ImGui::Begin("Hello, world!");
-//        ImGui::Button("Look at this pretty button");
-//        ImGui::End();
+    }
 
+    void update() override {
         triangulator.triangulate();
-        updateTriangles(triangulator,triangles);
+        updateTriangles();
 
-        window.clear();
-        window.draw(triangles);
-//        window.draw(shape);
-        ImGui::SFML::Render(window);
-        window.display();
     }
 
-    ImGui::SFML::Shutdown();
-}
+    void draw() override {
+        gl::clear(Color(0, 0, 0));
+        ci::gl::color(0, 1, 0);
+        gl::draw(PointsMesh);
+        if (vertexCountInTriangleMesh==0){
+            return;
+        }
+        ci::gl::color(0, 1, 0);
+        gl::draw(TrianglesMesh,0,vertexCountInTriangleMesh);
+    }
+};
+
+
+
+CINDER_APP(CinderDelaunayVoronoi, RendererGl)
